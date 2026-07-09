@@ -1,6 +1,7 @@
 package com.willfp.ecoenchants.mechanics
 
 import com.willfp.eco.core.fast.fast
+import com.willfp.ecoenchants.EcoEnchantsScheduler
 import com.willfp.ecoenchants.enchant.wrap
 import com.willfp.ecoenchants.plugin
 import org.bukkit.enchantments.Enchantment
@@ -91,8 +92,8 @@ object GrindstoneSupport : Listener {
         }
 
         // Force remove XP
-        plugin.scheduler.runLater(1) {
-            val loc = inventory.location ?: return@runLater
+        val loc = inventory.location ?: return
+        EcoEnchantsScheduler.runAtLocationLater(loc, 1) {
             val orbs = loc.getNearbyEntities(3.0, 3.0, 3.0)
                 .filterIsInstance<ExperienceOrb>()
                 .filter { it.spawnReason == ExperienceOrb.SpawnReason.GRINDSTONE }

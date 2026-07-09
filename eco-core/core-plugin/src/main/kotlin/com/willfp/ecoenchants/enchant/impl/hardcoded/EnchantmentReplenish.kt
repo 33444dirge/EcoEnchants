@@ -2,6 +2,7 @@ package com.willfp.ecoenchants.enchant.impl.hardcoded
 
 import com.willfp.ecoenchants.enchant.EcoEnchant
 import com.willfp.ecoenchants.enchant.impl.HardcodedEcoEnchant
+import com.willfp.ecoenchants.EcoEnchantsScheduler
 import com.willfp.ecoenchants.target.EnchantFinder.hasEnchantActive
 import org.bukkit.Bukkit
 import org.bukkit.Material
@@ -91,7 +92,7 @@ object EnchantmentReplenish : HardcodedEcoEnchant(
 
             data.age = 0
 
-            plugin.scheduler.run {
+            EcoEnchantsScheduler.runAtLocation(block.location) {
                 block.type = type
                 block.blockData = data
 

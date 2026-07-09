@@ -5,7 +5,12 @@ plugins {
 group = "com.willfp"
 version = rootProject.version
 
+repositories {
+    mavenCentral()
+}
+
 dependencies {
+    implementation("net.kyori:adventure-text-serializer-ansi:5.1.1")
     implementation(project(":eco-core:core-nms:v1_21_8", configuration = "shadow"))
     paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
 }
@@ -28,7 +33,7 @@ tasks {
         exclude("com/willfp/ecoenchants/proxy/v1_21_8/ModernEnchantmentRegisterer*.class")
         exclude("com/willfp/ecoenchants/proxy/v1_21_8/registration/VanillaEcoEnchantsEnchantment*.class")
 
-        duplicatesStrategy = DuplicatesStrategy.FAIL
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     }
 }
 
