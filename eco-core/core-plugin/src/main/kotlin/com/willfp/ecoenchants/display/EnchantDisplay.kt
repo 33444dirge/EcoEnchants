@@ -41,7 +41,7 @@ object EnchantDisplay : DisplayModule(plugin, DisplayPriority.HIGH) {
         props: DisplayProperties,
         vararg args: Any
     ) {
-        if (!itemStack.isEnchantable && plugin.configYml.getBool("display.require-enchantable")) {
+        if (plugin.configYml.getBool("display.require-enchantable") && !itemStack.isEnchantable) {
             return
         }
 
@@ -178,7 +178,7 @@ object EnchantDisplay : DisplayModule(plugin, DisplayPriority.HIGH) {
     }
 
     override fun revert(itemStack: ItemStack) {
-        if (!itemStack.isEnchantable && plugin.configYml.getBool("display.require-enchantable")) {
+        if (plugin.configYml.getBool("display.require-enchantable") && !itemStack.isEnchantable) {
             return
         }
 
