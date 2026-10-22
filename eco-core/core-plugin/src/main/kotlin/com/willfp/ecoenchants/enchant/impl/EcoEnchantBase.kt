@@ -82,15 +82,25 @@ abstract class EcoEnchantBase(
         if (plugin.isLoaded) context.with("conditions") else SilentViolationContext
     )
 
-    override val isObtainableThroughEnchanting = config.getBool("enchantable")
+    /**
+     * 加权抽选第二段中该附魔的权重（同品质内的相对出现概率）。
+     * 对应 aiyatsbus 的 alternativeData.weight，未配置时为 1（同品质内等概率）。
+     */
+    override val drawWeight = config.getIntOrNull("weight") ?: 1
 
-    override val isObtainableThroughTrading = config.getBool("tradeable")
+    override val isObtainableThroughEnchanting: Boolean
+        get() = isEnabled && config.getBool("enchantable")
+
+    override val isObtainableThroughTrading: Boolean
+        get() = isEnabled && config.getBool("tradeable")
 
     private val discoverableBool = config.getBoolOrNull("discoverable")
 
     private val discoverableSection = config.getSubsectionOrNull("discoverable")
 
     override fun isObtainableThrough(type: DiscoveryType): Boolean {
+        if (!isEnabled) return false
+
         val bool = discoverableBool
         if (bool != null) return bool
         return discoverableSection?.getBoolOrNull(type.configKey) ?: true

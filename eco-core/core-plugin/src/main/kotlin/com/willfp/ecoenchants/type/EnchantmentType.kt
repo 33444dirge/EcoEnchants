@@ -12,6 +12,9 @@ class EnchantmentType(
 ) : Registrable {
     val id = config.getString("id")
     val format = config.getString("format")
+
+    /** 菜单里显示的名字，没配就退回 id */
+    val displayName = config.getStringOrNull("display-name")?.takeIf { it.isNotEmpty() } ?: id
     val limit = config.getInt("limit").infiniteIfNegative()
     val highLevelBias = config.getDouble("high-level-bias").coerceAtMost(0.999)
     val noGrindstone = config.getBool("no-grindstone")

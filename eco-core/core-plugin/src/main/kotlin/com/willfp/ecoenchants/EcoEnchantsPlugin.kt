@@ -17,6 +17,15 @@ import com.willfp.ecoenchants.display.EnchantSorter
 import com.willfp.ecoenchants.enchant.EcoEnchantLevel
 import com.willfp.ecoenchants.enchant.EcoEnchants
 import com.willfp.ecoenchants.enchant.EnchantGUI
+import com.willfp.ecoenchants.gui.AnvilSimGUI
+import com.willfp.ecoenchants.gui.ChatInput
+import com.willfp.ecoenchants.gui.EnchantInfoGUI
+import com.willfp.ecoenchants.gui.EnchantSearchGUI
+import com.willfp.ecoenchants.gui.Favorites
+import com.willfp.ecoenchants.gui.FavoritesGUI
+import com.willfp.ecoenchants.gui.FilterGUI
+import com.willfp.ecoenchants.gui.ItemCheckGUI
+import com.willfp.ecoenchants.gui.clearGuiCaches
 import com.willfp.ecoenchants.enchant.LoreConversion
 import com.willfp.ecoenchants.enchant.registration.EnchantmentRegisterer
 import com.willfp.ecoenchants.enchant.registration.ModernEnchantmentRegistererProxy
@@ -73,6 +82,9 @@ class EcoEnchantsPlugin : LibreforgePlugin() {
     override fun handleEnable() {
         Effects.register(EffectApplyRandomEnchant)
 
+        // 收藏夹的持久化键必须在加载阶段登记
+        Favorites.register()
+
         registerHolderProvider(EnchantFinder.toHolderProvider())
 
         registerSpecificRefreshFunction<LivingEntity> {
@@ -96,7 +108,16 @@ class EcoEnchantsPlugin : LibreforgePlugin() {
         DisplayCache.reload()
         EnchantSorter.reload()
         ExtraItemSupport.reload()
+        GrindstoneSupport.reload()
         EnchantGUI.reload()
+
+        clearGuiCaches()
+        FilterGUI.reload()
+        EnchantInfoGUI.reload()
+        EnchantSearchGUI.reload()
+        FavoritesGUI.reload()
+        ItemCheckGUI.reload()
+        AnvilSimGUI.reload()
     }
 
     override fun loadListeners(): List<Listener> {
@@ -106,7 +127,8 @@ class EcoEnchantsPlugin : LibreforgePlugin() {
             LootSupport,
             AnvilSupport,
             LoreConversion,
-            GrindstoneSupport
+            GrindstoneSupport,
+            ChatInput
         )
     }
 

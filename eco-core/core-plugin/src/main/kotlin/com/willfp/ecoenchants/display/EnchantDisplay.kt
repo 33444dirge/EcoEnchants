@@ -7,10 +7,11 @@ import com.willfp.eco.core.display.DisplayProperties
 import com.willfp.eco.core.fast.FastItemStack
 import com.willfp.eco.core.fast.fast
 import com.willfp.ecoenchants.commands.CommandToggleDescriptions.seesEnchantmentDescriptions
-import com.willfp.ecoenchants.display.EnchantSorter.sortForDisplay
+import com.willfp.ecoenchants.display.EnchantSorter.sortForItemLore
 import com.willfp.ecoenchants.enchant.EcoEnchant
 import com.willfp.ecoenchants.enchant.wrap
 import com.willfp.ecoenchants.plugin
+import com.willfp.ecoenchants.target.EnchantmentTargets
 import com.willfp.ecoenchants.target.EnchantmentTargets.isEnchantable
 import com.willfp.libreforge.ItemProvidedHolder
 import org.bukkit.Material
@@ -64,8 +65,7 @@ object EnchantDisplay : DisplayModule(plugin, DisplayPriority.HIGH) {
 
         // Get enchants mapped to EcoEnchantLike
         val unsorted = fast.getEnchants(true)
-        val enchants = unsorted.keys.sortForDisplay()
-            .associateWith { unsorted[it]!! }
+        val enchants = unsorted.sortForItemLore()
 
         val shouldCollapse = plugin.configYml.getBool("display.collapse.enabled") &&
                 enchants.size > plugin.configYml.getInt("display.collapse.threshold")
@@ -98,12 +98,27 @@ object EnchantDisplay : DisplayModule(plugin, DisplayPriority.HIGH) {
 
         if (shouldCollapse) {
             val perLine = plugin.configYml.getInt("display.collapse.per-line")
-            for (names in formattedNames.values.chunked(perLine)) {
+            val delimiter = plugin.configYml.getFormattedString("display.collapse.delimiter")
+
+            // 合并显示时同样保留描述（aiyatsbus 的 combine.layout 是
+            // "{previous_1}, {previous_2}{subsequent_1}{subsequent_2}"，
+            // 即名字并排后，本行各附魔的描述依次跟在下方）。
+            for (chunk in formattedNames.entries.chunked(perLine)) {
                 enchantLore.add(
-                    Display.PREFIX + names.joinToString(
-                        plugin.configYml.getFormattedString("display.collapse.delimiter")
-                    )
+                    Display.PREFIX + chunk.joinToString(delimiter) { it.value }
                 )
+
+                if (shouldDescribe) {
+                    for ((displayable, _) in chunk) {
+                        val (enchant, level) = displayable
+
+                        enchantLore.addAll(
+                            enchant.getFormattedDescription(level, player)
+                                .filter { it.isNotEmpty() }
+                                .map { Display.PREFIX + it }
+                        )
+                    }
+                }
             }
         } else {
             for ((displayable, formattedName) in formattedNames) {
@@ -119,15 +134,46 @@ object EnchantDisplay : DisplayModule(plugin, DisplayPriority.HIGH) {
             }
         }
 
+        // 剩余附魔词条数（对应 aiyatsbus 的 capability_line）。
+        // 只在物品本身有附魔数上限、且已附魔时显示，避免污染普通物品的 lore。
+        if (plugin.configYml.getBool("display.capacity.enabled") && enchants.isNotEmpty()) {
+            val maxEnchants = EnchantmentTargets.getMaxEnchants(itemStack)
+
+            if (maxEnchants > 0) {
+                val remaining = (maxEnchants - enchants.size).coerceAtLeast(0)
+
+                enchantLore.add(
+                    Display.PREFIX + plugin.configYml.getFormattedString("display.capacity.format")
+                        .replace("%capacity%", remaining.toString())
+                        .replace("%used%", enchants.size.toString())
+                        .replace("%max%", maxEnchants.toString())
+                )
+            }
+        }
+
         fast.addItemFlags(ItemFlag.HIDE_ENCHANTS)
         if (itemStack.type == Material.ENCHANTED_BOOK) {
             hse.hideStoredEnchants(fast)
         }
 
-        if (plugin.configYml.getBool("display.enchantments-below-lore")) {
-            fast.lore = lore + enchantLore + notMetLines
+        // 附魔块与物品原 lore 之间的分隔空行（对应 aiyatsbus lore_formation 里的 "&r "）。
+        // 仅在两边都非空时插入 —— aiyatsbus 的 without_lore 分支同样没有这一行，
+        // 否则没有 lore 的物品尾部会多出一行空白。
+        // 必须走 getFormattedString：getString 不会把 & 转成 §，配置里的 "&r " 会原样
+        // 当作纯文本塞进 lore，客户端就把 &r 三个字符直接画出来了
+        val separator = plugin.configYml.getFormattedString("display.separator")
+        val separatorLine = if (
+            separator.isNotEmpty() && enchantLore.isNotEmpty() && lore.isNotEmpty()
+        ) {
+            listOf(Display.PREFIX + separator)
         } else {
-            fast.lore = enchantLore + lore + notMetLines
+            emptyList()
+        }
+
+        if (plugin.configYml.getBool("display.enchantments-below-lore")) {
+            fast.lore = lore + separatorLine + enchantLore + notMetLines
+        } else {
+            fast.lore = enchantLore + separatorLine + lore + notMetLines
         }
     }
 

@@ -1,15 +1,19 @@
-display-name: "Curse of Permanence"
-description: "Prevents modifying this item in an anvil"
+# 对应 aiyatsbus / Nereus-Opus 的「烙印诅咒」。
+# libreforge 没有铁砧相关的 trigger，因此沿用 EcoEnchants 的硬编码实现
+# （EnchantmentPermanenceCurse），FXEnchant 不迁移它。
+display-name: "烙印诅咒"
+description: "使物品在铁砧中无法被修改"
 type: curse
 
 targets:
   - all
 conflicts: [ ]
-rarity: legendary
+rarity: curse
 max-level: 1
 
+# Nereus-Opus 将它设为非宝藏诅咒，可通过正常来源获取。
 tradeable: true
 discoverable: true
-enchantable: false
+enchantable: true
 
 conditions: [ ]

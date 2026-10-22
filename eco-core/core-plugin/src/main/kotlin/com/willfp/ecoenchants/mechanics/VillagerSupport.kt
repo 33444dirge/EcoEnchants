@@ -1,110 +1,97 @@
 package com.willfp.ecoenchants.mechanics
 
 import com.willfp.eco.core.fast.fast
-import com.willfp.eco.util.NumberUtils
-import com.willfp.ecoenchants.enchant.EcoEnchants
 import com.willfp.ecoenchants.plugin
-import com.willfp.ecoenchants.target.EnchantmentTargets.isEnchantable
-import org.bukkit.Material
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.VillagerAcquireTradeEvent
+import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.MerchantRecipe
 import org.bukkit.inventory.meta.EnchantmentStorageMeta
-import kotlin.math.ceil
+import kotlin.random.Random
 
 object VillagerSupport : Listener {
     @EventHandler
     fun onTrade(event: VillagerAcquireTradeEvent) {
+        val original = event.recipe
+        val result = original.result.clone()
+        if (result.fast().getEnchants(true).isEmpty()) {
+            return
+        }
+
         if (!plugin.configYml.getBool("villager.enabled")) {
+            event.isCancelled = true
             return
         }
 
-        val result = event.recipe.result.clone()
+        clearEnchantments(result)
+        val selected = linkedMapOf<org.bukkit.enchantments.Enchantment, Int>()
+        val amount = plugin.configYml.getInt("villager.amount").coerceAtLeast(0)
+        val candidates = villagerEnchantCandidates()
 
-        if (!result.isEnchantable) {
-            return
-        }
-
-        val enchants = result.fast().getEnchants(true)
-
-        if (NumberUtils.randFloat(0.0, 100.0) < plugin.configYml.getDouble("villager.pass-through-chance")) {
-            return
-        }
-
-        var multiplier = 0.01
-
-        if (result.type == Material.ENCHANTED_BOOK) {
-            multiplier *= plugin.configYml.getDouble("villager.book-multiplier")
-        }
-
-        val enchantments = EcoEnchants.values().shuffled()
-
-        for (enchantment in enchantments) {
-            if (!enchantment.isObtainableThroughTrading) {
-                continue
+        repeat(amount) {
+            val pool = candidates.filter {
+                it.canEnchant(result, selected.keys)
             }
-
-            if (!enchantment.canEnchantItem(result, enchants.keys)) {
-                continue
-            }
-
-            if (NumberUtils.randFloat(0.0, 1.0) > enchantment.enchantmentRarity.villagerChance * multiplier) {
-                continue
-            }
-
-            if (enchants.size > plugin.configYml.getInt("anvil.enchant-limit").infiniteIfNegative()) {
-                break
-            }
-
-
-            val maxLevel = enchantment.maximumLevel
-
-            val levelPart1 = event.recipe.ingredients[0].amount / 64.0
-            val levelPart2 = NumberUtils.triangularDistribution(0.0, 1.0, levelPart1)
-            val levelPart3 = NumberUtils.bias(levelPart2, enchantment.type.highLevelBias)
-            val level = ceil(levelPart3 * maxLevel).coerceIn(1.0..maxLevel.toDouble()).toInt()
-
-            multiplier /= plugin.configYml.getDouble("villager.reduction")
-
-            if (result.type == Material.ENCHANTED_BOOK) {
-                // Only allow one enchantment
-                enchants.clear()
-                enchants[enchantment.enchantment] = level
-                break
+            val candidate = pool.drawAiyatsbus() ?: return@repeat
+            val configuredLimit = plugin.configYml.getInt("villager.max-level-limit")
+            val limit = if (configuredLimit < 1) {
+                candidate.maxLevel
             } else {
-                enchants[enchantment.enchantment] = level
-            }
+                minOf(candidate.maxLevel, configuredLimit)
+            }.coerceAtLeast(1)
+            selected[candidate.enchantment] = Random.nextInt(1, limit + 1)
         }
 
-        val meta = result.itemMeta
-        if (meta is EnchantmentStorageMeta) {
-            // Remove existing enchants
-            for (enchant in meta.storedEnchants.keys) {
-                meta.removeStoredEnchant(enchant)
-            }
-
-            for ((enchant, level) in enchants) {
-                meta.addStoredEnchant(enchant, level, true)
-            }
-        } else {
-            for ((enchant, level) in enchants) {
-                meta.removeEnchant(enchant)
-                meta.addEnchant(enchant, level, true)
-            }
+        if (selected.isEmpty()) {
+            event.isCancelled = true
+            return
         }
-        result.itemMeta = meta
 
+        applyEnchantments(result, selected)
         val recipe = MerchantRecipe(
             result,
-            event.recipe.uses,
-            event.recipe.maxUses,
-            event.recipe.hasExperienceReward(),
-            event.recipe.villagerExperience,
-            event.recipe.priceMultiplier
+            original.uses,
+            original.maxUses,
+            original.hasExperienceReward(),
+            original.villagerExperience,
+            original.priceMultiplier,
+            original.demand,
+            original.specialPrice,
+            original.shouldIgnoreDiscounts()
         )
-
-        recipe.ingredients = event.recipe.ingredients
+        recipe.ingredients = original.ingredients
         event.recipe = recipe
     }
+}
+
+private fun clearEnchantments(item: ItemStack) {
+    val meta = item.itemMeta
+    if (meta is EnchantmentStorageMeta) {
+        for (enchant in meta.storedEnchants.keys.toSet()) {
+            meta.removeStoredEnchant(enchant)
+        }
+    } else {
+        for (enchant in meta.enchants.keys.toSet()) {
+            meta.removeEnchant(enchant)
+        }
+    }
+    item.itemMeta = meta
+}
+
+private fun applyEnchantments(
+    item: ItemStack,
+    enchantments: Map<org.bukkit.enchantments.Enchantment, Int>
+) {
+    val meta = item.itemMeta
+    if (meta is EnchantmentStorageMeta) {
+        for ((enchant, level) in enchantments) {
+            meta.addStoredEnchant(enchant, level, true)
+        }
+    } else {
+        for ((enchant, level) in enchantments) {
+            meta.addEnchant(enchant, level, true)
+        }
+    }
+    item.itemMeta = meta
 }

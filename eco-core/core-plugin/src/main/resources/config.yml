@@ -6,32 +6,72 @@
 # Options for enchanting items in the enchanting table
 enchanting-table:
   enabled: true # If custom enchantments should be available from enchanting tables
-  book-multiplier: 0.5 # Multiplier applied to the chance of getting an enchantment on a book (to balance enchant numbers)
-  maximum-obtainable-level: 30 # The max level for the enchanting table. EcoEnchants doesn't change the limit, but if you have a plugin that does, adjust this to match.
-  cap: 5 # The maximum amount of enchantments to get at any given time
-  reduction: 2.2 # The chance to get each subsequent enchantment is divided by this number, e.g. 2nd enchant is 2.2x less likely than 1st, 3rd is 2.2x less likely again, etc
+  # Aiyatsbus: each successful roll unlocks the next extra enchantment.
+  more-enchant-chances: [0.2, 0.15, 0.1]
+  max-level-limit: 5
+  full-level-permission: "aiyatsbus.privilege.table.full"
+  vip-permission: "aiyatsbus.privilege.table.vip"
+  vip-chance-multiplier: 1.2
+  svip-permission: "aiyatsbus.privilege.table.svip"
+  svip-chance-multiplier: 1.4
 
 # Options for obtaining custom enchants from villagers
 villager:
   enabled: true # If custom enchantments should be available from villagers
-  pass-through-chance: 25 # The chance to leave the book as-is with a vanilla/no enchantment applied.
-  book-multiplier: 0.14 # Multiplier applied to the chance of getting an enchantment on a book (to balance enchant numbers)
-  reduction: 5 # The chance to get each subsequent enchantment is divided by this number, e.g. 2nd enchant is 5x less likely than 1st, 3rd is 5x less likely again, etc
+  amount: 1
+  max-level-limit: -1
 
 # Options for obtaining custom enchants in natural loot
 loot:
-  enabled: true # If custom enchantments should be available from natural loot
-  book-multiplier: 0.5 # Multiplier applied to the chance of getting an enchantment on a book (to balance enchant numbers)
-  reduction: 7.5 # The chance to get each subsequent enchantment is divided by this number, e.g. 2nd enchant is 7.5x less likely than 1st, 3rd is 7.5x less likely again, etc
+  enabled: false
+  fish-enabled: false
+  vanilla-mode: false
+  cost: 3
+  bonus: 16
+  more-enchant-chances: [0.2, 0.15, 0.1]
+  max-level-limit: -1
+  full-level-permission: "aiyatsbus.privilege.loot.full"
+  vip-permission: "aiyatsbus.privilege.loot.vip"
+  vip-chance-multiplier: 1.2
+  svip-permission: "aiyatsbus.privilege.loot.svip"
+  svip-chance-multiplier: 1.4
 
 # Options for merging items in an anvil
 anvil:
-  vanilla-costs: false # If true, uses only vanilla XP costs (ignores cost-exponent). Custom enchants still work.
-  cost-exponent: 0.95 # The exponent for each enchant level to prevent constant "Too Expensive!" problems
-  enchant-limit: -1 # The limit for the amount of enchantments on an item (-1 to disable)
-  use-rework-penalty: true # If the rework penalty should be applied
-  max-repair-cost: 40 # Override the maximum repair cost (-1 to make it infinite). When clamp-repair-cost is false, exceeding this cost will block the enchantment.
-  clamp-repair-cost: true # If the repair cost should be clamped to the maximum repair cost
+  # Values and formulas migrated from the active Aiyatsbus anvil.yml.
+  enchant-limit: 8
+  book-enchant-limit: 32
+  allow-unsafe-level: false
+  block-on-unsafe-level: true
+  allow-unsafe-combine: false
+  use-rework-penalty: true
+  max-repair-cost: 50
+  rename-cost: 1
+  repair-cost: 5
+  combine-repair-cost: 2
+  new-enchant-extra-cost: 2
+  enchant-cost-per-level: 6.0
+  vip-permission: "aiyatsbus.privilege.anvil.vip"
+  vip-discount: 1
+  svip-permission: "aiyatsbus.privilege.anvil.svip"
+  svip-discount: 2
+
+# Aiyatsbus grindstone refund rules.
+grindstone:
+  enabled: true
+  base-experience: 30.0
+  accumulation: true
+  default-rarity-bonus: 1.0
+  rarity-bonus:
+    uncommon: 1.25
+    rare: 1.5
+    epic: 2.0
+    legendary: 4.0
+    unknown: 8.0
+  vip-permission: "aiyatsbus.privilege.grindstone.vip"
+  vip-multiplier: 1.25
+  svip-permission: "aiyatsbus.privilege.grindstone.svip"
+  svip-multiplier: 1.5
 
 # Options for how enchantments are displayed on items
 display:
@@ -55,6 +95,10 @@ display:
     level-only: true # If only the level should be formatted
 
   sort:
+    # Aiyatsbus item-lore runtime behavior: sort enchantments by level ascending.
+    # Missing this option also defaults to true for existing configurations.
+    level: true
+
     type: false # If enchantments should be sorted by time
     type-order: # The order for types to be sorted in. Types not in this list will not be displayed if type sorting is enabled.
       - normal
@@ -70,20 +114,40 @@ display:
       - rare
       - epic
       - legendary
+      - unknown
+      - curse
+      - artifact
       - special
       - veryspecial
 
   collapse:
     enabled: true # If enchantments should be collapsed in lore
-    threshold: 9 # Above this amount, enchantments will be collapsed
+    # 超过此数量才合并显示。设为 0 表示「始终」每行放 per-line 个（aiyatsbus 风格）。
+    # 想还原原版「附魔多了才合并」的行为，改回 9 即可。
+    threshold: 0
     per-line: 2 # The amount of enchantments to put in each line
-    delimiter: ",&r " # The delimiter between enchantments
+    delimiter: "&7, " # The delimiter between enchantments
 
   descriptions:
     enabled: true # If enchantment descriptions should be shown in lore
-    threshold: 5 # Above this amount, enchantment descriptions will not be shown
+    # 合并显示时描述依然会显示（对齐 aiyatsbus 的 combine.layout 行为）。
+    # 超过此数量则不再显示描述，避免 lore 过长。
+    threshold: 8
     word-wrap: 27 # Number of characters to have on each line
-    format: "&8"
+    # 对齐 aiyatsbus 的 "&8| &7{description}"：深灰竖线 + 灰色正文
+    # 原为 "&8"（整条深灰），偏暗
+    format: "&8| &7"
+
+  # 剩余附魔词条数（对应 aiyatsbus 的 capability_line）。
+  # 仅在物品所属目标配置了 targets.yml 的 max-enchants、且物品已有附魔时显示。
+  # 可用占位符：%capacity% 剩余、%used% 已用、%max% 上限
+  capacity:
+    enabled: true
+    format: "&c| &7附魔词条数空余: &e%capacity%"
+
+  # 附魔块与物品原有 lore 之间的分隔行（对应 aiyatsbus lore_formation 里的 "&r "）。
+  # 留空则不插入。物品本身没有 lore 时不会插入，避免尾部多出空行。
+  separator: "&r "
 
   require-enchantable: true # If EcoEnchants should not display on non-enchantable items.
 
@@ -103,11 +167,11 @@ enchantinfo:
     show-max-level: true # Whether the book should be the max level or level 1
     lore: # The description is automatically appended
       - ""
-      - "&fMax Level: &a%max_level%"
-      - "&fRarity: &a%rarity%"
-      - "&fApplicable to: &a%targets%"
-      - "&fConflicts with: &a%conflicts%"
-      - "&fRequires: &a%required%"
+      - "&f最高等级: &a%max_level%"
+      - "&f品质: &a%rarity%"
+      - "&f适用于: &a%targets%"
+      - "&f冲突附魔: &a%conflicts%"
+      - "&f前置附魔: &a%required%"
 
   # Custom GUI slots; see here for a how-to: https://hub.auxilor.io/wiki/eco/pages#custom-gui-slots
   custom-slots: [ ]
@@ -115,7 +179,7 @@ enchantinfo:
 # Options for the enchant GUI.
 enchant-gui:
   rows: 6 # How many rows to have in the GUI
-  title: "Enchant GUI &7(%page%/%max_page%)" # The title of the GUI
+  title: "附魔一览 &7(%page%/%max_page%)" # The title of the GUI
 
   mask: # The background material
     items:
@@ -133,12 +197,12 @@ enchant-gui:
 
   # Options for the info item
   info:
-    item: player_head name:"&aHow do I use this?" texture:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvMjcwNWZkOTRhMGM0MzE5MjdmYjRlNjM5YjBmY2ZiNDk3MTdlNDEyMjg1YTAyYjQzOWUwMTEyZGEyMmIyZTJlYyJ9fX0=
+    item: player_head name:"&a这个怎么用？" texture:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvMjcwNWZkOTRhMGM0MzE5MjdmYjRlNjM5YjBmY2ZiNDk3MTdlNDEyMjg1YTAyYjQzOWUwMTEyZGEyMmIyZTJlYyJ9fX0=
     lore:
-      - "&fPlace an item in the slot at the top,"
-      - "&fand all the enchantments you can add"
-      - "&fto to this item will show up in the"
-      - "&farea below!"
+      - "&f把物品放进上方的槽位，"
+      - "&f该物品可以附加的所有附魔"
+      - "&f都会显示在下方区域中！"
+      - ""
     row: 1
     column: 9
 
@@ -154,13 +218,13 @@ enchant-gui:
       pitch: 1.0
       volume: 1.0
     forwards:
-      item: arrow name:"&fNext Page" # The item. Will not show if on the last page.
-      item-inactive: gray_dye name:"&7Next Page" # The item shown on the last page
+      item: arrow name:"&f下一页" # The item. Will not show if on the last page.
+      item-inactive: gray_dye name:"&7下一页" # The item shown on the last page
       row: 6
       column: 6
     backwards:
-      item: arrow name:"&fPrevious Page" # The item. Will not show if on the first page.
-      item-inactive: gray_dye name:"&7Previous Page" # The item shown on the first page
+      item: arrow name:"&f上一页" # The item. Will not show if on the first page.
+      item-inactive: gray_dye name:"&7上一页" # The item shown on the first page
       row: 6
       column: 4
 
@@ -168,7 +232,7 @@ enchant-gui:
   close-button:
     enabled: true
     item: barrier
-    name: "&cClose"
+    name: "&c关闭"
     lore: [ ]
     row: 6
     column: 5
@@ -195,7 +259,7 @@ enchant-gui:
   # Only shown when grouped is true.
   back-button:
     enabled: true
-    item: arrow name:"&fBack to Groups"
+    item: arrow name:"&f返回分类"
     lore: []
     row: 6
     column: 1
@@ -203,7 +267,7 @@ enchant-gui:
 # Options for the group selection GUI (only used when enchant-gui.grouped is true)
 group-gui:
   rows: 3
-  title: "Enchantment Groups"
+  title: "附魔分类"
 
   mask:
     items:
@@ -221,27 +285,27 @@ group-gui:
   # Groups with unrecognized IDs are silently ignored.
   groups:
     - id: normal
-      item: enchanted_book name:"&7Normal Enchantments"
+      item: enchanted_book name:"&7普通附魔"
       lore:
-        - "&fClick to browse normal enchantments"
+        - "&f点击浏览普通附魔"
       row: 2
       column: 2
     - id: spell
-      item: enchanted_book name:"<gradient:#0575E6:#1E3FBA>Spell Enchantments"
+      item: enchanted_book name:"<gradient:#0575E6:#1E3FBA>技能附魔"
       lore:
-        - "&fClick to browse spell enchantments"
+        - "&f点击浏览技能附魔"
       row: 2
       column: 4
     - id: special
-      item: enchanted_book name:"<gradient:#FB57EC:#EF1DEC>Special Enchantments"
+      item: enchanted_book name:"<gradient:#FB57EC:#EF1DEC>特殊附魔"
       lore:
-        - "&fClick to browse special enchantments"
+        - "&f点击浏览特殊附魔"
       row: 2
       column: 6
     - id: curse
-      item: enchanted_book name:"&cCurse Enchantments"
+      item: enchanted_book name:"&c诅咒附魔"
       lore:
-        - "&fClick to browse curse enchantments"
+        - "&f点击浏览诅咒附魔"
       row: 2
       column: 8
 

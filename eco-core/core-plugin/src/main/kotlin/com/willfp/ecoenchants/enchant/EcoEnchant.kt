@@ -45,6 +45,15 @@ interface EcoEnchant : KRegistrable, EcoEnchantLike {
     val conditions: ConditionList
 
     /**
+     * 加权抽选中该附魔在同品质内的相对权重，默认 1。
+     *
+     * 不叫 weight 是因为 Bukkit 的 Enchantment 已有 getWeight()，
+     * EcoEnchantsCraftEnchantment 同时继承 CraftEnchantment 并委托本接口时，
+     * 两者的 JVM 签名 getWeight()I 会冲突。
+     */
+    val drawWeight: Int
+
+    /**
      * If the enchantment is enchantable.
      */
     val isObtainableThroughEnchanting: Boolean

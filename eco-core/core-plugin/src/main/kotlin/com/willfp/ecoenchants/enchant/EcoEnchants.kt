@@ -95,6 +95,14 @@ object EcoEnchants : RegistrableCategory<EcoEnchant>("enchant", "enchants") {
         val enchantment = plugin.enchantmentRegisterer.register(enchant)
         // Register delegated versions
         registry.register(enchantment as EcoEnchant)
+
+        // BY_NAME 是 BiMap，值也必须唯一。若同一个附魔 ID 被注册两次而两份配置的
+        // display-name 不同（例如插件自带一份、附属插件又提供一份覆盖版），
+        // enchantmentRegisterer 会返回同一个附魔实例，直接 put 就会因
+        // "value already present" 抛异常并中断该附魔的加载。
+        // 先摘掉该实例的旧名字映射，让后加载的配置正常覆盖。
+        BY_NAME.inverse().remove(enchantment)
+
         @Suppress("DEPRECATION")
         BY_NAME[ChatColor.stripColor(enchant.getFormattedName(0))?.lowercase()] = enchantment as EcoEnchant
         EnchantRegistrations.registerEnchantments()

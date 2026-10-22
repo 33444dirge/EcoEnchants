@@ -1,6 +1,7 @@
 package com.willfp.ecoenchants.enchant.impl.hardcoded
 
 import com.willfp.eco.util.DurabilityUtils
+import com.willfp.ecoenchants.EcoEnchantsScheduler
 import com.willfp.ecoenchants.enchant.impl.HardcodedEcoEnchant
 import com.willfp.ecoenchants.target.EnchantFinder.getItemsWithEnchantActive
 import com.willfp.ecoenchants.target.EnchantFinder.hasEnchantActive
@@ -23,7 +24,13 @@ object EnchantmentRepairing : HardcodedEcoEnchant(
         val notWhileHolding = config.getBool("not-while-holding")
 
         for (player in Bukkit.getOnlinePlayers()) {
-            if (player.hasEnchantActive(this)) {
+            // 计时器跑在全局线程；Folia 下背包的读写必须回到该玩家所属的区域线程，
+            // 否则玩家跨区时会与旧区域的处理并发改同一份物品栏（耐久覆盖写 / CME）
+            EcoEnchantsScheduler.runAtEntity(player) {
+                if (!player.hasEnchantActive(this)) {
+                    return@runAtEntity
+                }
+
                 val repairPerLevel = config.getIntFromExpression("repair-per-level", player)
 
                 for ((item, level) in player.getItemsWithEnchantActive(this)) {

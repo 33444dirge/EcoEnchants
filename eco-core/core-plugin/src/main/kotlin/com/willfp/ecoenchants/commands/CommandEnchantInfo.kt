@@ -27,7 +27,7 @@ object CommandEnchantInfo : PluginCommand(
         val nameArgs = if (level != null) args.dropLast(1) else args
         val searchName = nameArgs.joinToString(" ")
 
-        val enchantment = EcoEnchants.getByName(searchName)
+        val enchantment = EcoEnchants.getByName(searchName)?.takeIf { it.isEnabled }
 
         if (enchantment == null) {
             val message = plugin.langYml.getMessage("not-found").replace("%name%", searchName)
@@ -42,7 +42,9 @@ object CommandEnchantInfo : PluginCommand(
         val completions = mutableListOf<String>()
 
         @Suppress("DEPRECATION")
-        val names = EcoEnchants.values().mapNotNull { org.bukkit.ChatColor.stripColor(it.getFormattedName(0)) }
+        val names = EcoEnchants.values()
+            .filter { it.isEnabled }
+            .mapNotNull { org.bukkit.ChatColor.stripColor(it.getFormattedName(0)) }
 
         if (args.isEmpty()) {
             // Currently, this case is not ever reached
@@ -52,7 +54,7 @@ object CommandEnchantInfo : PluginCommand(
         // If all args except the last form a complete enchant name, suggest level numbers
         if (args.size > 1) {
             val namePrefix = args.dropLast(1).joinToString(" ")
-            val matched = EcoEnchants.getByName(namePrefix)
+            val matched = EcoEnchants.getByName(namePrefix)?.takeIf { it.isEnabled }
             if (matched != null) {
                 val levels = (1..matched.maximumLevel).map { it.toString() }
                 StringUtil.copyPartialMatches(args.last(), levels, completions)

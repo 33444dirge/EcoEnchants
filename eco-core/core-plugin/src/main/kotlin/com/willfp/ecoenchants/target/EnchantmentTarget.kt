@@ -18,6 +18,19 @@ interface EnchantmentTarget : Registrable {
     val slot: SlotType
     val items: List<TestableItem>
 
+    /**
+     * 该目标类型允许的最大附魔数量，-1 表示不限制。
+     *
+     * 对应 aiyatsbus 中每个 target 的 max（剑 12、镐 7、刷子 3 …）。
+     * 一件物品同时命中多个目标时取最严格的那个，见 [EnchantmentTargets.getMaxEnchants]。
+     */
+    val maxEnchants: Int
+        get() = -1
+
+    /** 筛选界面里代表该类别的头颅材质（base64），取自 aiyatsbus 的 target.yml */
+    val skull: String?
+        get() = null
+
     fun matches(itemStack: ItemStack): Boolean {
         for (item in items) {
             if (item.matches(itemStack)) {
@@ -38,6 +51,8 @@ class ConfiguredEnchantmentTarget(
     override val id = config.getString("id")
     override val displayName = config.getFormattedString("display-name")
 
+    override val skull: String? = config.getStringOrNull("skull")?.takeIf { it.isNotEmpty() }
+
     override val slot = SlotTypes[config.getString("slot")] ?: throw IllegalArgumentException(
         "Invalid slot type: ${config.getString("slot")}, options are ${
             SlotTypes.values().map { it.id }
@@ -47,6 +62,9 @@ class ConfiguredEnchantmentTarget(
     override val items = config.getStrings("items")
         .map { Items.lookup(it) }
         .filterNot { it is EmptyTestableItem }
+
+    // 用 getIntOrNull：getInt 在键缺失时返回 0，会把该类物品的附魔全部禁掉
+    override val maxEnchants = config.getIntOrNull("max-enchants") ?: -1
 
     override fun equals(other: Any?): Boolean {
         if (other !is EnchantmentTarget) {

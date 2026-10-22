@@ -1,15 +1,19 @@
-display-name: "Repairing"
-description: "Automatically gain &a%amount%&r durability every &a%frequency% &rseconds"
-type: special
+# 对应 aiyatsbus / Nereus-Opus 的「自生」。
+# 该附魔作用于背包内非手持物品，无法做成 libreforge effect，
+# 因此沿用 EcoEnchants 的硬编码实现（EnchantmentRepairing），FXEnchant 不迁移它。
+display-name: "自生"
+description: "处于非手持状态时耐久度持续增加"
+type: normal
 placeholders:
-  frequency: "1.5"
+  frequency: "5"
   amount: "%level%"
 
 targets:
   - all
+# 源实现与「腐烂诅咒」互斥（一个加耐久、一个掉耐久）
 conflicts:
-  - mending
-rarity: veryspecial
+  - decay_curse
+rarity: unknown
 max-level: 3
 
 tradeable: true
@@ -18,6 +22,6 @@ enchantable: true
 
 conditions: [ ]
 
-repair-per-level: 1 # The amount of durability to add on each item
-frequency: 30 # How often to repair the item (in ticks, doesn't support %level%)
-not-while-holding: true # If items shouldn't be repaired while they are being held
+repair-per-level: 1 # 每级每次恢复的耐久点数
+frequency: 100 # 恢复间隔（tick，不支持 %level%）。对应源配置的 repeat-ticks: 100
+not-while-holding: true # 手持/穿戴时不恢复，对应源描述的「处于非手持状态时」

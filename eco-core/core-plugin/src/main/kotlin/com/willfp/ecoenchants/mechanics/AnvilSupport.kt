@@ -3,11 +3,15 @@ package com.willfp.ecoenchants.mechanics
 import com.willfp.eco.core.fast.fast
 import com.willfp.eco.core.proxy.ProxyConstants
 import com.willfp.eco.util.StringUtils
+import com.willfp.ecoenchants.EcoEnchantsScheduler
+import com.willfp.ecoenchants.enchant.EcoEnchant
 import com.willfp.ecoenchants.enchant.EcoEnchants
 import com.willfp.ecoenchants.enchant.wrap
 import com.willfp.ecoenchants.plugin
 import org.bukkit.Material
 import org.bukkit.Tag
+import org.bukkit.GameMode
+import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
@@ -15,6 +19,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryCloseEvent
 import org.bukkit.event.inventory.PrepareAnvilEvent
+import org.bukkit.event.player.PlayerGameModeChangeEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.AnvilInventory
 import org.bukkit.inventory.ItemStack
@@ -22,24 +27,29 @@ import org.bukkit.inventory.meta.Damageable
 import org.bukkit.inventory.meta.EnchantmentStorageMeta
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 data class AnvilResult(
     val result: ItemStack?,
-    val xp: Int?
+    val xp: Int?,
+    val onlyRename: Boolean = false
 )
 
 fun Int.infiniteIfNegative() = if (this < 1) Int.MAX_VALUE else this
 
 private val FAIL = AnvilResult(null, null)
 
+private const val VANILLA_TOO_EXPENSIVE_COST = 40
+
 interface OpenInventoryProxy {
     fun getOpenInventory(player: Player): Any
+}
+
+interface ClientGameModeProxy {
+    fun sendClientGameMode(player: Player, gameMode: GameMode)
 }
 
 private val repair = mutableMapOf<Collection<Material>, Collection<Material>>(
@@ -211,6 +221,8 @@ object AnvilSupport : Listener {
 
     private val renderedPreviewGeneration = ConcurrentHashMap<UUID, Int>()
 
+    private val expensiveCostClientViewers = ConcurrentHashMap.newKeySet<UUID>()
+
     /**
      * Class for AnvilGUI wrappers to ignore them.
      */
@@ -257,12 +269,56 @@ object AnvilSupport : Listener {
 
         latestPreviewGeneration.remove(player.uniqueId)
         renderedPreviewGeneration.remove(player.uniqueId)
+        restoreClientGameMode(player)
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    fun onGameModeChange(event: PlayerGameModeChangeEvent) {
+        if (event.player.uniqueId !in expensiveCostClientViewers) {
+            return
+        }
+
+        EcoEnchantsScheduler.runAtPlayer(event.player) {
+            if (event.player.openInventory.topInventory is AnvilInventory) {
+                plugin.getProxy(ClientGameModeProxy::class.java)
+                    .sendClientGameMode(event.player, GameMode.CREATIVE)
+            }
+        }
     }
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
         latestPreviewGeneration.remove(event.player.uniqueId)
         renderedPreviewGeneration.remove(event.player.uniqueId)
+        expensiveCostClientViewers.remove(event.player.uniqueId)
+    }
+
+    private fun restoreClientGameMode(player: Player) {
+        updateExpensiveCostBypass(player, false)
+    }
+
+    private fun updateExpensiveCostBypass(player: Player, enabled: Boolean) {
+        val playerId = player.uniqueId
+        val changed = if (enabled && player.gameMode != GameMode.CREATIVE) {
+            expensiveCostClientViewers.add(playerId)
+        } else {
+            expensiveCostClientViewers.remove(playerId)
+        }
+        if (!changed) {
+            return
+        }
+
+        EcoEnchantsScheduler.runAtPlayer(player) {
+            if (playerId in expensiveCostClientViewers) {
+                if (player.openInventory.topInventory is AnvilInventory && player.gameMode != GameMode.CREATIVE) {
+                    plugin.getProxy(ClientGameModeProxy::class.java)
+                        .sendClientGameMode(player, GameMode.CREATIVE)
+                }
+            } else {
+                plugin.getProxy(ClientGameModeProxy::class.java)
+                    .sendClientGameMode(player, player.gameMode)
+            }
+        }
     }
 
     @Suppress("UnstableApiUsage")
@@ -281,6 +337,7 @@ object AnvilSupport : Listener {
             ) {
                 event.result = null
                 event.inventory.setItem(2, null)
+                restoreClientGameMode(player)
                 return
             }
         }
@@ -291,10 +348,17 @@ object AnvilSupport : Listener {
             return
         }
 
-        val baseRepairCost = event.view.repairCost
-
         event.result = null
         event.inventory.setItem(2, null)
+
+        // The merge is rebuilt on the scheduler below. Clear the old vanilla
+        // cost while there is no result so a previous preview cannot be shown
+        // with a different pickup cost during that rebuild.
+        val configuredMaxRepairCost = plugin.configYml.getInt("anvil.max-repair-cost").coerceAtLeast(1)
+        event.inventory.maximumRepairCost = configuredMaxRepairCost + 1
+        event.inventory.repairCost = 0
+        event.view.maximumRepairCost = configuredMaxRepairCost + 1
+        event.view.repairCost = 0
 
         plugin.scheduler.run {
             if (latestPreviewGeneration[player.uniqueId] != generation) {
@@ -314,6 +378,7 @@ object AnvilSupport : Listener {
             )
 
             if (result == FAIL) {
+                restoreClientGameMode(player)
                 return@run
             }
 
@@ -326,24 +391,20 @@ object AnvilSupport : Listener {
             val oldLeft = event.inventory.getItem(0)
 
             if (oldLeft == null || oldLeft.type != outItem.type) {
+                restoreClientGameMode(player)
                 return@run
             }
 
             if (left == old) {
+                restoreClientGameMode(player)
                 return@run
             }
 
-            var cost = if (plugin.configYml.getBool("anvil.vanilla-costs")) {
-                baseRepairCost
-            } else {
-                var c = baseRepairCost + price
-                // Unbelievably specific edge case
-                if (baseRepairCost == -price) c = price
-                c
-            }
+            val cost = price
 
             // Cost could be less than zero at times, so I include that here.
             if (cost <= 0) {
+                restoreClientGameMode(player)
                 return@run
             }
 
@@ -354,27 +415,31 @@ object AnvilSupport : Listener {
             val outEnchants = outItem.fast().getEnchants(true)
 
             if (event.inventory.getItem(1) == null && leftEnchants != outEnchants) {
+                restoreClientGameMode(player)
                 return@run
             }
 
-            if (plugin.configYml.getBool("anvil.use-rework-penalty")) {
+            if (plugin.configYml.getBool("anvil.use-rework-penalty") && !result.onlyRename) {
                 val repairCost = outItem.fast().repairCost
                 outItem.fast().repairCost = (repairCost + 1) * 2 - 1
             }
 
-            val clampRepairCost = plugin.configYml.getBool("anvil.clamp-repair-cost")
-            val maxRepairCost = plugin.configYml.getInt("anvil.max-repair-cost")
+            val maxRepairCost = plugin.configYml.getInt("anvil.max-repair-cost").coerceAtLeast(1)
 
             if (latestPreviewGeneration[player.uniqueId] != generation) {
                 return@run
             }
 
-            event.view.maximumRepairCost = maxRepairCost
-            event.view.repairCost = if (clampRepairCost) cost.coerceAtMost(maxRepairCost) else cost
-
-            if (!clampRepairCost && maxRepairCost > 0 && cost >= maxRepairCost) {
-                return@run
-            }
+            // Keep the value used by the client and by the server's anvil
+            // pickup check identical.  Setting only InventoryView.repairCost
+            // can leave the underlying AnvilInventory with the vanilla cost
+            // after another prepare pass, which makes the displayed level
+            // differ from the level actually required on click.
+            val finalCost = cost.coerceAtMost(maxRepairCost)
+            event.inventory.maximumRepairCost = maxRepairCost + 1
+            event.inventory.repairCost = finalCost
+            event.view.maximumRepairCost = maxRepairCost + 1
+            event.view.repairCost = finalCost
 
             if (latestPreviewGeneration[player.uniqueId] != generation) {
                 return@run
@@ -383,6 +448,7 @@ object AnvilSupport : Listener {
             event.result = outItem
             event.inventory.setItem(2, outItem)
             renderedPreviewGeneration[player.uniqueId] = generation
+            updateExpensiveCostBypass(player, cost >= VANILLA_TOO_EXPENSIVE_COST)
         }
     }
 
@@ -395,6 +461,13 @@ object AnvilSupport : Listener {
         if (left == null || left.type == Material.AIR) {
             return FAIL
         }
+
+        var experience = if (plugin.configYml.getBool("anvil.use-rework-penalty")) {
+            left.fast().repairCost.toDouble()
+        } else {
+            0.0
+        }
+        experience += plugin.configYml.getInt("anvil.rename-cost")
 
         val formattedItemName = if (player.hasPermission("ecoenchants.anvil.color")) {
             StringUtils.format(itemName)
@@ -411,7 +484,16 @@ object AnvilSupport : Listener {
             left.fast().displayName =
                 formattedItemName.let { "§o$it" } // Not a great way to make it italic, but it works
 
-            return AnvilResult(left, 0)
+            return AnvilResult(left, experience.roundToInt(), onlyRename = true)
+        }
+
+        // Vanilla only merges an enchanted book into an item with durability or into
+        // another enchanted book; a plain minecraft:book is not a valid target. Letting
+        // it through enchants the *whole* left stack, yields a non-vanilla "book with
+        // enchantments" item, and that item is then accepted as a sacrifice again -
+        // one enchanted book is enough to duplicate its enchantments onto a whole stack.
+        if (left.type == Material.BOOK && right.fast().getEnchants(true).isNotEmpty()) {
+            return FAIL
         }
 
         val leftMeta = left.itemMeta
@@ -436,6 +518,7 @@ object AnvilSupport : Listener {
                     leftMeta.damage = newDamage.coerceAtLeast(0) // Prevent negative damage
 
                     right.amount -= toDeduct
+                    experience += plugin.configYml.getInt("anvil.repair-cost")
                 }
             } else {
                 if (right.type != Material.ENCHANTED_BOOK) {
@@ -450,20 +533,47 @@ object AnvilSupport : Listener {
         val rightEnchants = right.fast().getEnchants(true)
 
         val outEnchants = leftEnchants.toMutableMap()
+        val allowUnsafeLevel = plugin.configYml.getBool("anvil.allow-unsafe-level")
+        val blockOnUnsafeLevel = plugin.configYml.getBool("anvil.block-on-unsafe-level")
+        val allowUnsafeCombine = plugin.configYml.getBool("anvil.allow-unsafe-combine")
+        val enchantLimit = if (left.type == Material.BOOK || left.type == Material.ENCHANTED_BOOK) {
+            plugin.configYml.getInt("anvil.book-enchant-limit")
+        } else {
+            plugin.configYml.getInt("anvil.enchant-limit")
+        }.infiniteIfNegative()
 
         for ((enchant, level) in rightEnchants) {
+            val wrapped = enchant.wrap()
+            if (!wrapped.isEnabled) {
+                continue
+            }
+
             if (outEnchants.containsKey(enchant)) {
                 val currentLevel = outEnchants[enchant]!!
+                val maxLevel = wrapped.maximumLevel.coerceAtLeast(1)
                 outEnchants[enchant] = if (level == currentLevel) {
-                    min(enchant.maxLevel, level + 1)
+                    if (level >= maxLevel && allowUnsafeCombine) {
+                        level + 1
+                    } else {
+                        min(maxLevel, level + 1)
+                    }
                 } else {
-                    max(level, currentLevel)
+                    val highestLevel = max(level, currentLevel)
+                    if (highestLevel > maxLevel && !allowUnsafeLevel) {
+                        if (blockOnUnsafeLevel) {
+                            return FAIL
+                        }
+                        maxLevel
+                    } else {
+                        highestLevel
+                    }
                 }
             } else {
                 // Running .wrap() to use EcoEnchantLike canEnchantItem logic
-                if (enchant.wrap().canEnchantItem(left, outEnchants.keys)) {
-                    if (outEnchants.size < plugin.configYml.getInt("anvil.enchant-limit").infiniteIfNegative()) {
+                if (wrapped.canEnchantItem(left, outEnchants.keys)) {
+                    if (outEnchants.size < enchantLimit) {
                         outEnchants[enchant] = level
+                        experience += plugin.configYml.getInt("anvil.new-enchant-extra-cost")
                     }
                 }
             }
@@ -475,9 +585,26 @@ object AnvilSupport : Listener {
             val maxDamage = left.type.maxDurability.toInt()
             val leftDurability = maxDamage - leftMeta.damage
             val rightDurability = maxDamage - rightMeta.damage
-            val damage = maxDamage - min(maxDamage, leftDurability + rightDurability)
+            val repairBonus = ceil(maxDamage * 0.12).toInt()
+            val damage = maxDamage - min(maxDamage, leftDurability + rightDurability + repairBonus)
 
             leftMeta.damage = damage.coerceAtLeast(0) // Prevent negative damage
+            experience += plugin.configYml.getInt("anvil.combine-repair-cost")
+        }
+
+        if (leftEnchants != outEnchants) {
+            val basePerLevel = plugin.configYml.getDouble("anvil.enchant-cost-per-level")
+            for ((enchant, level) in outEnchants) {
+                val previousLevel = leftEnchants[enchant] ?: 0
+                val addedLevels = level - previousLevel
+                if (addedLevels > 0) {
+                    experience += basePerLevel / enchant.maxLevel.coerceAtLeast(1) * addedLevels
+                }
+            }
+        }
+
+        if (!validateAndNormalizeAnvilEnchants(outEnchants, leftEnchants)) {
+            return FAIL
         }
 
         if (leftMeta is EnchantmentStorageMeta) {
@@ -500,11 +627,81 @@ object AnvilSupport : Listener {
 
         left.itemMeta = leftMeta
 
-        val enchantLevelDiff = abs(leftEnchants.values.sum() - outEnchants.values.sum())
-        val xpCost =
-            enchantLevelDiff.toDouble().pow(plugin.configYml.getDouble("anvil.cost-exponent")) + unitRepairCost
+        return AnvilResult(left, finalAiyatsbusCost(experience, player))
+    }
 
-        return AnvilResult(left, xpCost.roundToInt())
+    private fun validateAndNormalizeAnvilEnchants(
+        enchants: MutableMap<Enchantment, Int>,
+        originalEnchants: Map<Enchantment, Int>
+    ): Boolean {
+        val allowUnsafeLevel = plugin.configYml.getBool("anvil.allow-unsafe-level")
+        val blockOnUnsafeLevel = plugin.configYml.getBool("anvil.block-on-unsafe-level")
+
+        for ((enchant, level) in enchants.toMap()) {
+            val wrapped = enchant.wrap()
+            if (!wrapped.isEnabled || level < 1) {
+                return false
+            }
+
+            val maxLevel = wrapped.maximumLevel.coerceAtLeast(1)
+            if (level > maxLevel && !allowUnsafeLevel) {
+                // Existing unsafe levels must not make unrelated, otherwise-valid
+                // book applications impossible. They are preserved, but this merge
+                // may not use them to create or increase another unsafe level.
+                val originalLevel = originalEnchants[enchant] ?: 0
+                if (originalLevel > maxLevel && level <= originalLevel) {
+                    continue
+                }
+                if (blockOnUnsafeLevel) {
+                    return false
+                }
+                enchants[enchant] = maxLevel
+            }
+        }
+
+        val enchantments = enchants.keys.toList()
+        for (enchant in enchantments) {
+            val custom = enchant.wrap() as? EcoEnchant ?: continue
+            if (!custom.hasRequiredEnchantments(enchantments)) {
+                return false
+            }
+        }
+
+        for (firstIndex in enchantments.indices) {
+            for (secondIndex in firstIndex + 1 until enchantments.size) {
+                if (hasAnvilConflict(enchantments[firstIndex], enchantments[secondIndex])) {
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
+    private fun hasAnvilConflict(first: Enchantment, second: Enchantment): Boolean {
+        if (first.conflictsWith(second) || second.conflictsWith(first)) {
+            return true
+        }
+
+        val firstCustom = first.wrap() as? EcoEnchant
+        val secondCustom = second.wrap() as? EcoEnchant
+        return firstCustom?.conflictsWithDirectly(second) == true ||
+                secondCustom?.conflictsWithDirectly(first) == true
+    }
+
+    private fun finalAiyatsbusCost(origin: Double, player: Player): Int {
+        val discounts = buildList {
+            add(0)
+            if (player.hasPermission(plugin.configYml.getString("anvil.vip-permission"))) {
+                add(plugin.configYml.getInt("anvil.vip-discount"))
+            }
+            if (player.hasPermission(plugin.configYml.getString("anvil.svip-permission"))) {
+                add(plugin.configYml.getInt("anvil.svip-discount"))
+            }
+        }
+        val cost = origin.roundToInt() - discounts.max()
+
+        return cost.coerceIn(1, plugin.configYml.getInt("anvil.max-repair-cost").coerceAtLeast(1))
     }
 }
 

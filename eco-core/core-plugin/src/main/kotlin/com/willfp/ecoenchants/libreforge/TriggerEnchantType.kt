@@ -2,6 +2,7 @@ package com.willfp.ecoenchants.libreforge
 
 import com.willfp.eco.core.fast.fast
 import com.willfp.ecoenchants.enchant.wrap
+import com.willfp.ecoenchants.EcoEnchantsScheduler
 import com.willfp.ecoenchants.plugin
 import com.willfp.ecoenchants.type.EnchantmentType
 import com.willfp.libreforge.toDispatcher
@@ -39,7 +40,7 @@ class TriggerEnchantType(
     fun handleLevelling(event: EnchantItemEvent) {
         val player = event.enchanter
 
-        plugin.scheduler.runLater({
+        EcoEnchantsScheduler.runAtPlayerLater(player, 2) {
             if (
                 event.item.fast().getEnchants(true).keys
                     .map { it.wrap() }
@@ -56,6 +57,6 @@ class TriggerEnchantType(
                     )
                 )
             }
-        }, 2)
+        }
     }
 }

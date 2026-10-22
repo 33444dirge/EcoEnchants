@@ -38,7 +38,8 @@ fun EcoEnchantLike.getFormattedName(
         val numerals = plugin.configYml.getBool("display.numerals.enabled") &&
                 level <= plugin.configYml.getInt("display.numerals.threshold")
 
-        val typeFormat = this.type.format
+        // 品质配了 format 就按品质着色（aiyatsbus 风格），否则沿用按类型着色
+        val typeFormat = this.enchantmentRarity.format ?: this.type.format
         val name = this.rawDisplayName
         val number = if (numerals) NumberUtils.toNumeral(level) else level.toString()
         val dontShowNumber = (level == 1 && this.maximumLevel == 1) || level < 1
@@ -70,9 +71,15 @@ private val resetTags = arrayOf(
     "§r"
 )
 
+private val colorCode = Regex("(?i)(?:&|§)[0-9a-f]")
+
+private fun descriptionContinuationFormat(descriptionFormat: String): String =
+    colorCode.findAll(descriptionFormat).lastOrNull()?.value.orEmpty()
+
 fun EcoEnchantLike.getFormattedDescription(level: Int, player: Player? = null): List<String> {
     return DisplayCache.descriptionCache.get(DisplayableEnchant(this, level)) {
         val descriptionFormat = plugin.configYml.getString("display.descriptions.format")
+        val continuationFormat = descriptionContinuationFormat(descriptionFormat)
         val wrap = plugin.configYml.getInt("display.descriptions.word-wrap")
         val rawDescriptions = this.getRawDescription(level, player)
 
@@ -81,7 +88,7 @@ fun EcoEnchantLike.getFormattedDescription(level: Int, player: Player? = null): 
             // Apply the description format and reset tags, then apply word wrapping
             var formattedLine = descriptionFormat + line
             resetTags.forEach { tag ->
-                formattedLine = formattedLine.replace(tag, tag + descriptionFormat)
+                formattedLine = formattedLine.replace(tag, tag + continuationFormat)
             }
 
             // Apply word wrapping after all formatting

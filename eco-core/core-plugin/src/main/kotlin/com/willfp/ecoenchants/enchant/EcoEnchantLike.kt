@@ -11,6 +11,7 @@ import com.willfp.ecoenchants.EcoEnchantsPlugin
 import com.willfp.ecoenchants.display.DescriptionPlaceholder
 import com.willfp.ecoenchants.mechanics.infiniteIfNegative
 import com.willfp.ecoenchants.rarity.EnchantmentRarity
+import com.willfp.ecoenchants.target.EnchantmentTargets
 import com.willfp.ecoenchants.type.EnchantmentType
 import org.bukkit.Material
 import org.bukkit.enchantments.Enchantment
@@ -39,6 +40,13 @@ interface EcoEnchantLike {
     val enchantment: Enchantment
 
     /**
+     * Whether this enchantment may currently be used or newly applied.
+     * Missing `enabled` keeps the upstream default behavior.
+     */
+    val isEnabled: Boolean
+        get() = config.getBoolOrNull("enabled") ?: true
+
+    /**
      * The raw display name.
      */
     val rawDisplayName: String
@@ -60,7 +68,12 @@ interface EcoEnchantLike {
         item: ItemStack,
         additionalEnchantments: Collection<Enchantment> = emptyList()
     ): Boolean {
-        val enchants = item.fast().getEnchants(true).keys + additionalEnchantments
+        if (!isEnabled) {
+            return false
+        }
+
+        val enchants = (item.fast().getEnchants(true).keys + additionalEnchantments)
+            .distinctBy { it.key }
 
         if (enchants.count { it.wrap().type == this.type } >= this.type.limit) {
             return false
@@ -74,12 +87,30 @@ interface EcoEnchantLike {
             return false
         }
 
-        if (enchants.size >= plugin.configYml.getInt("anvil.enchant-limit").infiniteIfNegative()) {
+        // 只有附魔书是「容器」：它本身不是最终载体，能存下任何附魔。
+        // 普通书（minecraft:book）不是容器，也不属于任何附魔目标，所以不能在这里放行，
+        // 否则会产出原版不存在的「带附魔的普通书」，并且整组一起被附魔。
+        val isEnchantedBook = item.type == Material.ENCHANTED_BOOK
+
+        val enchantLimit = if (isEnchantedBook) {
+            plugin.configYml.getInt("anvil.book-enchant-limit")
+        } else {
+            plugin.configYml.getInt("anvil.enchant-limit")
+        }.infiniteIfNegative()
+
+        if (enchants.size >= enchantLimit) {
             return false
         }
 
-        if (item.type == Material.ENCHANTED_BOOK) {
+        if (isEnchantedBook) {
             return true
+        }
+
+        // 按目标类型的附魔数上限（targets.yml 的 max-enchants），与上面的全局上限取严。
+        // 放在附魔书判断之后：附魔书是容器而非最终载体，不应受目标上限约束。
+        val maxEnchants = EnchantmentTargets.getMaxEnchants(item)
+        if (maxEnchants > 0 && enchants.size >= maxEnchants) {
+            return false
         }
 
         return if (this is EcoEnchant) {
@@ -148,4 +179,3 @@ interface EcoEnchantLike {
         }
     }
 }
-

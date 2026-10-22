@@ -14,9 +14,12 @@ interface EnchantmentSorter {
 
 object EnchantSorter {
     private val sorters = mutableListOf<EnchantmentSorter>()
+    private var itemLoreSortByLevel = true
 
     internal fun reload() {
         sorters.clear()
+
+        itemLoreSortByLevel = plugin.configYml.getBoolOrNull("display.sort.level") ?: true
 
         if (plugin.configYml.getBool("display.sort.rarity")) {
             sorters.add(RaritySorter)
@@ -33,6 +36,19 @@ object EnchantSorter {
 
     fun Collection<Enchantment>.sortForDisplay(): List<Enchantment> =
         sorters.getSafely(0).sort(this, sorters.drop(1))
+
+    /**
+     * Match the ordering produced by Aiyatsbus' item-lore list overload:
+     * level ascending, with the enchantment component's order retained for ties.
+     */
+    fun Map<Enchantment, Int>.sortForItemLore(): LinkedHashMap<Enchantment, Int> {
+        val entries = if (itemLoreSortByLevel) {
+            entries.sortedBy { it.value }
+        } else {
+            entries.toList()
+        }
+        return entries.associateTo(linkedMapOf()) { it.key to it.value }
+    }
 }
 
 fun List<EnchantmentSorter>.getSafely(index: Int) =

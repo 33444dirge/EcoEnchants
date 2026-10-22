@@ -1,6 +1,7 @@
 package com.willfp.ecoenchants.enchant.impl.hardcoded
 
 import com.willfp.eco.core.Prerequisite
+import com.willfp.ecoenchants.EcoEnchantsScheduler
 import com.willfp.eco.core.data.keys.PersistentDataKey
 import com.willfp.eco.core.data.keys.PersistentDataKeyType
 import com.willfp.eco.core.data.profile
@@ -114,7 +115,7 @@ object EnchantmentSoulbound : HardcodedEcoEnchant(
 
             val items = itemStrings.map { Items.fromSNBT(it) }
 
-            plugin.scheduler.run {
+            EcoEnchantsScheduler.runAtPlayer(player) {
                 DropQueue(player)
                     .addItems(items)
                     .forceTelekinesis()

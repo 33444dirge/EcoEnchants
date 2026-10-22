@@ -1,7 +1,6 @@
 package com.willfp.ecoenchants.enchant
 
 import com.github.benmanes.caffeine.cache.Caffeine
-import com.willfp.eco.core.drops.DropQueue
 import com.willfp.eco.core.fast.fast
 import com.willfp.eco.core.gui.GUIComponent
 import com.willfp.eco.core.gui.addPageChanger
@@ -25,8 +24,9 @@ import com.willfp.ecoenchants.display.EnchantSorter.sortForDisplay
 import com.willfp.ecoenchants.display.HideStoredEnchantsProxy
 import com.willfp.ecoenchants.display.getFormattedDescription
 import com.willfp.ecoenchants.display.getFormattedName
-import com.willfp.ecoenchants.enchant.DiscoveryType
 import com.willfp.ecoenchants.plugin
+import com.willfp.ecoenchants.gui.afterInventoryClick
+import com.willfp.ecoenchants.gui.returnCaptives
 import com.willfp.ecoenchants.target.EnchantmentTargets.applicableEnchantments
 import org.bukkit.Material
 import org.bukkit.enchantments.Enchantment
@@ -47,7 +47,7 @@ object EnchantGUI {
     internal fun reload() {
         cachedEnchantmentSlots.invalidateAll()
         enchantInfoMenus.invalidateAll()
-        allEnchantsSorted = EcoEnchants.values().map { it.enchantment }.sortForDisplay()
+        allEnchantsSorted = EcoEnchants.values().filter { it.isEnabled }.map { it.enchantment }.sortForDisplay()
 
         menu = menu(plugin.configYml.getInt("enchant-gui.rows")) {
             title = plugin.configYml.getFormattedString("enchant-gui.title")
@@ -87,7 +87,7 @@ object EnchantGUI {
                 val hasItem = !atCaptive.isEcoEmpty && atCaptive != null && atCaptive.type != Material.BOOK
 
                 val baseEnchants = if (!hasItem) {
-                    EcoEnchants.values().map { it.enchantment }.sortForDisplay()
+                    EcoEnchants.values().filter { it.isEnabled }.map { it.enchantment }.sortForDisplay()
                 } else {
                     atCaptive.applicableEnchantments.map { it.enchantment }.sortForDisplay()
                         .subtract(atCaptive.fast().enchants.keys)
@@ -167,7 +167,7 @@ object EnchantGUI {
                             .addLoreLines(plugin.configYml.getStrings("enchant-gui.close-button.lore"))
                             .build()
                     ) {
-                        onLeftClick { event, _ -> event.whoClicked.closeInventory() }
+                        onLeftClick { event, _ -> afterInventoryClick(event) { it.closeInventory() } }
                     }
                 )
             }
@@ -185,16 +185,7 @@ object EnchantGUI {
                     ) {
                         onLeftClick { event, _ ->
                             val groupGui = groupMenu ?: return@onLeftClick
-                            val player = event.whoClicked as Player
-                            // Return captive items to the player before navigating back
-                            val captiveItems = menu.getCaptiveItems(player)
-                            if (captiveItems.isNotEmpty()) {
-                                DropQueue(player)
-                                    .addItems(captiveItems)
-                                    .forceTelekinesis()
-                                    .push()
-                            }
-                            groupGui.open(player)
+                            afterInventoryClick(event) { groupGui.open(it) }
                         }
                     }
                 )
@@ -213,12 +204,8 @@ object EnchantGUI {
                 pages
             }
 
-            onClose { event, menu ->
-                val player = event.player as Player
-                DropQueue(player)
-                    .addItems(menu.getCaptiveItems(player))
-                    .forceTelekinesis()
-                    .push()
+            onClose { event, _ ->
+                returnCaptives(event, captiveRow to captiveColumn)
             }
 
             for (config in plugin.configYml.getSubsections("enchant-gui.custom-slots")) {
@@ -270,7 +257,7 @@ object EnchantGUI {
                                 .build()
                         ) {
                             onLeftClick { event, _ ->
-                                openGroupGUI(event.whoClicked as Player, groupId)
+                                afterInventoryClick(event) { openGroupGUI(it, groupId) }
                             }
                         }
                     )
@@ -400,13 +387,16 @@ private fun EcoEnchant.getInformationSlot(player: Player, level: Int): Slot {
                                         required.wrap().getFormattedName(0)
                                     }.ifEmpty { plugin.langYml.getFormattedString("no-required") }
                                 )
-                                .replace("%tradeable%", this.isObtainableThroughTrading.parseYesOrNo())
-                                .replace("%discoverable%", this.isObtainableThroughDiscovery.parseYesOrNo())
-                                .replace("%discoverable_chests%", this.isObtainableThrough(DiscoveryType.CHESTS).parseYesOrNo())
-                                .replace("%discoverable_fishing%", this.isObtainableThrough(DiscoveryType.FISHING).parseYesOrNo())
-                                .replace("%discoverable_mob_drops%", this.isObtainableThrough(DiscoveryType.MOB_DROPS).parseYesOrNo())
-                                .replace("%discoverable_raids%", this.isObtainableThrough(DiscoveryType.RAIDS).parseYesOrNo())
-                                .replace("%enchantable%", this.isObtainableThroughEnchanting.parseYesOrNo())
+                                .replace("%tradeable%", false.parseYesOrNo())
+                                .replace("%discoverable%", false.parseYesOrNo())
+                                .replace("%discoverable_chests%", false.parseYesOrNo())
+                                .replace("%discoverable_fishing%", false.parseYesOrNo())
+                                .replace("%discoverable_mob_drops%", false.parseYesOrNo())
+                                .replace("%discoverable_raids%", false.parseYesOrNo())
+                                .replace(
+                                    "%enchantable%",
+                                    (this.isObtainableThroughEnchanting && this.enchantmentRarity.id != "artifact").parseYesOrNo()
+                                )
                         }
                         .formatEco()
                         .flatMap {

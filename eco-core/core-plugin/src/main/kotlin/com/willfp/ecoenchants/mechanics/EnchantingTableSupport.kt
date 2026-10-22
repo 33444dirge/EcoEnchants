@@ -3,14 +3,9 @@ package com.willfp.ecoenchants.mechanics
 import com.willfp.eco.core.items.Items
 import com.willfp.eco.core.items.TestableItem
 import com.willfp.eco.core.recipe.parts.EmptyTestableItem
-import com.willfp.eco.util.NumberUtils
-import com.willfp.eco.util.randDouble
-import com.willfp.ecoenchants.enchant.EcoEnchants
 import com.willfp.ecoenchants.plugin
-import org.bukkit.Bukkit
 import org.bukkit.GameMode
 import org.bukkit.Material
-import org.bukkit.enchantments.Enchantment
 import org.bukkit.enchantments.EnchantmentOffer
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
@@ -21,130 +16,130 @@ import org.bukkit.inventory.meta.EnchantmentStorageMeta
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.math.ceil
-import kotlin.math.floor
-import kotlin.math.min
+import kotlin.random.Random
+
+private data class PreparedEnchant(
+    val candidate: AiyatsbusEnchantCandidate,
+    val level: Int
+)
+
+private data class PreparedEnchantingTable(
+    val bonus: Int,
+    val offers: List<PreparedEnchant?>
+)
 
 object EnchantingTableSupport : Listener {
+    private val prepared = ConcurrentHashMap<UUID, PreparedEnchantingTable>()
+
     @EventHandler
     fun onLeave(event: PlayerQuitEvent) {
-        ExtraItemSupport.currentlyEnchantingExtraItem.remove(event.player.uniqueId)
+        prepared.remove(event.player.uniqueId)
+    }
+
+    @EventHandler
+    fun onPrepare(event: PrepareItemEnchantEvent) {
+        if (!plugin.configYml.getBool("enchanting-table.enabled")) {
+            prepared.remove(event.enchanter.uniqueId)
+            return
+        }
+
+        val player = event.enchanter
+        val item = event.item.clone().also {
+            if (it.type == Material.BOOK) {
+                it.type = Material.ENCHANTED_BOOK
+            }
+        }
+        val bonus = event.enchantmentBonus.coerceAtMost(16)
+        val random = Random(item.hashCode() + player.world.seed.hashCode() + player.enchantmentSeed)
+        val pool = tableEnchantCandidates(player).filter { it.canEnchant(item, emptyList()) }
+
+        val offers = (0..2).map { index ->
+            // A malformed/zero-weight rarity must not leave an empty button.
+            val candidate = pool.drawAiyatsbus(random, countRarityPopulation = true)
+                ?: pool.firstOrNull()
+                ?: return@map null
+            PreparedEnchant(
+                candidate,
+                calculateAiyatsbusLevel(
+                    "enchanting-table",
+                    candidate,
+                    index + 1,
+                    bonus,
+                    player,
+                    random
+                )
+            )
+        }
+
+        for (index in offers.indices) {
+            val preparedOffer = offers[index] ?: continue
+            val existingOffer = event.offers.getOrNull(index)
+            val offer = existingOffer ?: EnchantmentOffer(
+                preparedOffer.candidate.enchantment,
+                preparedOffer.level,
+                index + 1
+            ).also { event.offers[index] = it }
+            offer.enchantment = preparedOffer.candidate.enchantment
+            offer.enchantmentLevel = preparedOffer.level
+        }
+
+        prepared[player.uniqueId] = PreparedEnchantingTable(bonus, offers)
     }
 
     @EventHandler
     fun onEnchant(event: EnchantItemEvent) {
-        val player = event.enchanter
-        val item = event.item.clone()
-        val cost = event.expLevelCost
-        val toAdd = event.enchantsToAdd
-
         if (!plugin.configYml.getBool("enchanting-table.enabled")) {
             return
         }
 
+        val player = event.enchanter
+        val state = prepared.remove(player.uniqueId) ?: return
+        val hint = state.offers.getOrNull(event.whichButton()) ?: return
+        val item = event.item.clone()
         val isExtraEnchantable = ExtraItemSupport.extraEnchantableItems.any { it.matches(item) }
 
-        if (isExtraEnchantable) {
+        if (isExtraEnchantable && player.gameMode != GameMode.CREATIVE) {
             val lapis = event.inventory.getItem(1)
-
-            if (player.gameMode != GameMode.CREATIVE) {
-                if (lapis == null) {
-                    event.isCancelled = true
-                    return
-                }
-
-                val lapisCost = event.whichButton() + 1
-
-                if (lapis.amount < lapisCost) {
-                    event.isCancelled = true
-                    return
-                }
-
-                lapis.amount -= lapisCost
-
-                event.inventory.setItem(1, lapis)
-            }
-        }
-
-        if (item.type == Material.BOOK) {
-            @Suppress("DEPRECATION")
-            item.type = Material.ENCHANTED_BOOK
-        }
-
-        var multiplier = 0.01
-        if (item.type == Material.ENCHANTED_BOOK) {
-            multiplier *= plugin.configYml.getDouble("enchanting-table.book-multiplier")
-        }
-
-        val enchantments = EcoEnchants.values().shuffled()
-
-        for (enchantment in enchantments) {
-            if (!enchantment.isObtainableThroughEnchanting) {
-                continue
-            }
-
-            if (!enchantment.canEnchantItem(item, toAdd.keys)) {
-                continue
-            }
-
-            if (!player.hasPermission("ecoenchants.fromtable.${enchantment.id}")) {
-                continue
-            }
-
-            val baseChance = enchantment.enchantmentRarity.tableChance * multiplier
-
-            val chanceEvent = EnchantingTableChanceGenerateEvent(player, item, enchantment.enchantment, baseChance)
-            Bukkit.getPluginManager().callEvent(chanceEvent)
-
-            if (NumberUtils.randFloat(0.0, 1.0) > chanceEvent.chance) {
-                continue
-            }
-
-            if (enchantment.enchantmentRarity.minimumLevel > cost) {
-                continue
-            }
-
-            if (toAdd.size >= plugin.configYml.getInt("enchanting-table.cap")) {
-                break
-            }
-
-            if (toAdd.size > plugin.configYml.getInt("anvil.enchant-limit").infiniteIfNegative()) {
-                break
-            }
-
-
-            val maxLevel = enchantment.maximumLevel
-            val maxObtainableLevel = plugin.configYml.getInt("enchanting-table.maximum-obtainable-level")
-
-            val levelPart1 = if (enchantment.type.highLevelBias > 0) {
-                randDouble(0.0, 1.0)
-            } else {
-                cost / maxObtainableLevel.toDouble()
-            }
-
-            val levelPart2 = NumberUtils.triangularDistribution(0.0, 1.0, levelPart1)
-            val levelPart3 = NumberUtils.bias(levelPart2, enchantment.type.highLevelBias)
-            val level = ceil(levelPart3 * maxLevel).coerceIn(1.0..maxLevel.toDouble()).toInt()
-
-            multiplier /= plugin.configYml.getDouble("enchanting-table.reduction")
-
-            toAdd[enchantment.enchantment] = level
-        }
-
-        toAdd.forEach(event.enchantsToAdd::putIfAbsent)
-
-        if (toAdd.isEmpty() && isExtraEnchantable) {
-            val extraLevels = ExtraItemSupport.currentlyEnchantingExtraItem.remove(player.uniqueId)
-            if (extraLevels != null) {
-                toAdd[Enchantment.UNBREAKING] = extraLevels[event.whichButton()]
-            } else {
+            val lapisCost = event.whichButton() + 1
+            if (lapis == null || lapis.amount < lapisCost) {
                 event.isCancelled = true
                 return
             }
+            lapis.amount -= lapisCost
+            event.inventory.setItem(1, lapis)
         }
 
-        // I remember writing this back in 8.x.x and deleting it during the recode
-        // It's here because books don't work with this event, for some reason
+        if (item.type == Material.BOOK) {
+            item.type = Material.ENCHANTED_BOOK
+        }
+
+        val selected = linkedMapOf(
+            hint.candidate.enchantment to hint.level
+        )
+        val button = event.whichButton() + 1
+        val extraAmount = calculateAiyatsbusAmount("enchanting-table", button, player)
+        val pool = tableEnchantCandidates(player).filter {
+            it.canEnchant(item, selected.keys)
+        }
+
+        repeat(extraAmount) {
+            val candidate = pool
+                .filter { it.enchantment !in selected && it.canEnchant(item, selected.keys) }
+                .drawAiyatsbus()
+                ?: return@repeat
+            selected[candidate.enchantment] = calculateAiyatsbusLevel(
+                "enchanting-table",
+                candidate,
+                button,
+                state.bonus,
+                player,
+                subtractRandom = false
+            )
+        }
+
+        event.enchantsToAdd.clear()
+        event.enchantsToAdd.putAll(selected)
+
         if (item.type == Material.ENCHANTED_BOOK) {
             plugin.scheduler.run {
                 if (!event.isCancelled) {
@@ -158,76 +153,9 @@ object EnchantingTableSupport : Listener {
             }
         }
     }
-
-    @EventHandler
-    fun handleExtraItem(event: PrepareItemEnchantEvent) {
-        if (!plugin.configYml.getBool("enchanting-table.enabled")) {
-            return
-        }
-
-        val item = event.item
-
-        if (!ExtraItemSupport.extraEnchantableItems.any { it.matches(item) }) {
-            return
-        }
-
-        val maxObtainableLevel = plugin.configYml.getInt("enchanting-table.maximum-obtainable-level")
-
-        /*
-        I have no clue how this code works, it's transplanted from old EcoEnchants, and I know it works
-        perfectly, it's effectively 1:1 with vanilla if memory serves, so I'm not going to rewrite it.
-         */
-
-        event.offers.getOrNull(2)?.cost = min(event.offers[2]?.cost ?: 0, maxObtainableLevel)
-
-        val bonus = event.enchantmentBonus.coerceIn(1..15)
-
-        val baseLevel = NumberUtils.randInt(1, 8) + floor(bonus / 2.0) + NumberUtils.randInt(0, bonus)
-
-        val levelScale = ceil(maxObtainableLevel / 30.0).toInt()
-
-        val bottomEnchantLevel =
-            (ceil((baseLevel / 3).coerceAtLeast(1.0)).toInt() * levelScale).coerceAtMost(maxObtainableLevel)
-        val midEnchantLevel = ((baseLevel * 2 / 3).toInt() + 1) * levelScale
-        val topEnchantLevel = baseLevel.coerceAtLeast(bonus * 2.0).toInt() * levelScale
-
-        var midUnbreakingLevel = NumberUtils.randInt(1, 3)
-        if (midUnbreakingLevel < 2) {
-            midUnbreakingLevel = 2
-        }
-        if (midEnchantLevel < 15) {
-            midUnbreakingLevel = 1
-        }
-
-        var topUnbreakingLevel = 3
-        if (topEnchantLevel < 20) {
-            topUnbreakingLevel = 2
-        }
-        if (topEnchantLevel < 10) {
-            topUnbreakingLevel = 1
-        }
-
-        val offers = arrayOf(
-            EnchantmentOffer(Enchantment.UNBREAKING, 1, bottomEnchantLevel),
-            EnchantmentOffer(Enchantment.UNBREAKING, midUnbreakingLevel, midEnchantLevel),
-            EnchantmentOffer(Enchantment.UNBREAKING, topUnbreakingLevel, topEnchantLevel)
-        )
-
-        for (i in offers.indices) {
-            event.offers[i] = offers[i]
-        }
-
-        ExtraItemSupport.currentlyEnchantingExtraItem[event.enchanter.uniqueId] = arrayOf(
-            event.offers[0]?.enchantmentLevel ?: 0,
-            event.offers[1]?.enchantmentLevel ?: 0,
-            event.offers[2]?.enchantmentLevel ?: 0
-        )
-    }
 }
 
 object ExtraItemSupport {
-    internal val currentlyEnchantingExtraItem = ConcurrentHashMap<UUID, Array<Int>>()
-
     internal val extraEnchantableItems = CopyOnWriteArrayList<TestableItem>()
 
     internal fun reload() {
