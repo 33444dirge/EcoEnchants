@@ -1,0 +1,18 @@
+// Windows test-worker workaround: copy classpath bytes unchanged to an ASCII path.
+allprojects {
+    tasks.withType(Test).configureEach {
+        doFirst {
+            def stage = new File('D:/codex-java-temp/ecoenchants-20261023/' + project.name)
+            stage.mkdirs()
+            def count = 0
+            classpath = project.files(classpath.files.collect { source ->
+                if (source.absolutePath.chars().allMatch { ch -> ch < 128 }) return source
+                def target = new File(stage, String.format('%03d', count++))
+                if (!source.exists()) return target
+                project.copy { from source; into target }
+                return source.isDirectory() ? target : new File(target, source.name)
+            })
+            logger.lifecycle("ASCII classpath: ${stage}")
+        }
+    }
+}

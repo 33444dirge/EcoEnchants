@@ -9,6 +9,13 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     testImplementation("com.willfp:eco:${rootProject.property("eco-version")}")
+    testImplementation("com.willfp:libreforge:${rootProject.property("libreforge-version")}:shadow") {
+        isTransitive = false
+    }
+    testImplementation("com.willfp:libreforge-loader:${rootProject.property("libreforge-version")}") {
+        isTransitive = false
+    }
+    testImplementation("com.github.ben-manes.caffeine:caffeine:3.2.3")
     testImplementation("org.junit.jupiter:junit-jupiter-api:6.0.3")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:6.0.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.0.3")

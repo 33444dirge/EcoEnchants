@@ -1,7 +1,6 @@
 package com.willfp.ecoenchants.target
 
 import com.github.benmanes.caffeine.cache.Caffeine
-import com.willfp.eco.core.fast.fast
 import com.willfp.ecoenchants.enchant.EcoEnchant
 import com.willfp.ecoenchants.enchant.EcoEnchantLevel
 import com.willfp.libreforge.ProvidedHolder
@@ -19,7 +18,7 @@ object EnchantFinder : ItemHolderFinder<EcoEnchantLevel>() {
         .build<UUID, List<ProvidedLevel>>()
 
     override fun find(item: ItemStack): List<EcoEnchantLevel> {
-        val enchantMap = item.fast().enchants
+        val enchantMap = item.enchantments
         val enchants = mutableListOf<EcoEnchantLevel>()
 
         for ((enchant, level) in enchantMap) {
@@ -34,7 +33,7 @@ object EnchantFinder : ItemHolderFinder<EcoEnchantLevel>() {
     }
 
     override fun isValidInSlot(holder: EcoEnchantLevel, slot: SlotType): Boolean {
-        return holder.enchant.targets.map { it.slot }.any { it.isOrContains(slot) }
+        return holder.enchant.targets.any { it.slot.isOrContains(slot) }
     }
 
     internal fun LivingEntity.clearEnchantmentCache() = levelCache.invalidate(this.uniqueId)
